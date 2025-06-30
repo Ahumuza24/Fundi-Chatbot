@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../utils/axios';
 
 const AuthContext = createContext();
 
@@ -16,8 +16,7 @@ export const AuthProvider = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Set up axios defaults
-  axios.defaults.baseURL = 'http://localhost:8000';
+  // Note: api instance is configured in utils/axios.js
 
   useEffect(() => {
     // Check for stored token on app load
@@ -30,8 +29,7 @@ export const AuthProvider = ({ children }) => {
         setUser(user);
         setIsAuthenticated(true);
         
-        // Set axios default header
-        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+        // Token is automatically handled by api instance
       } catch (error) {
         console.error('Error parsing stored user data:', error);
         localStorage.removeItem('token');
@@ -75,15 +73,14 @@ export const AuthProvider = ({ children }) => {
       formData.append('username', username);
       formData.append('password', password);
 
-      const response = await axios.post('/api/auth/login', formData);
+      const response = await api.post('/auth/login', formData);
       const { token, user_id, username: userUsername } = response.data;
 
       // Store token and user data
       localStorage.setItem('token', token);
       localStorage.setItem('user', JSON.stringify({ id: user_id, username: userUsername }));
 
-      // Set axios default header
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      // Token is automatically handled by api instance
 
       setUser({ id: user_id, username: userUsername });
       setIsAuthenticated(true);
@@ -104,15 +101,14 @@ export const AuthProvider = ({ children }) => {
       formData.append('username', username);
       formData.append('password', password);
 
-      const response = await axios.post('/api/auth/register', formData);
+      const response = await api.post('/auth/register', formData);
       const { token, user_id, username: userUsername } = response.data;
 
       // Store token and user data
       localStorage.setItem('token', token);
       localStorage.setItem('user', JSON.stringify({ id: user_id, username: userUsername }));
 
-      // Set axios default header
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      // Token is automatically handled by api instance
 
       setUser({ id: user_id, username: userUsername });
       setIsAuthenticated(true);
@@ -130,7 +126,6 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    delete axios.defaults.headers.common['Authorization'];
     setUser(null);
     setIsAuthenticated(false);
   };

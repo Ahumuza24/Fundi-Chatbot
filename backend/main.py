@@ -3,7 +3,7 @@ os.environ["CHROMA_TELEMETRY_ENABLED"] = "FALSE"
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 import uvicorn
 import os
 import json
@@ -196,27 +196,44 @@ async def query_chat(
     try:
         if not message.strip():
             raise HTTPException(status_code=400, detail="Message cannot be empty")
-        
-        # Create new chat if none provided
-        if not chat_id:
+
+        is_new_chat = not chat_id
+        if is_new_chat:
             chat_id = str(uuid.uuid4())
             db_manager.create_chat(chat_id, current_user["user_id"], message[:50])
-        
-        # Get relevant documents
-        relevant_docs = rag_engine.search_documents(message, current_user["user_id"])
-        
-        # Generate response using LLM
-        response = rag_engine.generate_response(message, relevant_docs)
-        
-        # Save messages to database
+
         db_manager.save_message(chat_id, "user", message)
-        db_manager.save_message(chat_id, "assistant", response)
-        
-        return {
-            "response": response,
-            "chat_id": chat_id,
-            "relevant_docs": relevant_docs
-        }
+
+        relevant_docs = rag_engine.search_documents(message, current_user["user_id"])
+        response_stream = rag_engine.generate_response(message, relevant_docs)
+
+        async def stream_and_save():
+            # First, yield metadata
+            metadata = {"chat_id": chat_id, "relevant_docs": relevant_docs}
+            yield json.dumps(metadata) + "\n"
+
+            # Then, stream the response while saving it
+            full_response_chunks = []
+            for chunk in response_stream:
+                full_response_chunks.append(chunk)
+                yield chunk
+            
+            # Now that the stream is complete, decode and save the full response
+            full_response = b"".join(full_response_chunks).decode('utf-8')
+            
+            final_text = ""
+            for line in full_response.strip().split('\n'):
+                try:
+                    data = json.loads(line)
+                    final_text += data.get("response", "")
+                except json.JSONDecodeError:
+                    logger.warning(f"Could not decode JSON line from stream: {line}")
+
+            if final_text:
+                db_manager.save_message(chat_id, "assistant", final_text)
+
+        return StreamingResponse(stream_and_save(), media_type="application/x-ndjson")
+
     except HTTPException:
         raise
     except Exception as e:

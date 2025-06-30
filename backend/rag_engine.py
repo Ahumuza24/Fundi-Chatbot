@@ -137,9 +137,11 @@ class RAGEngine:
                     context += f"Document {i+1}:\n{doc['content']}\n\n"
             
             # Create prompt
-            prompt = f"""You are a helpful AI assistant. Answer the user's question based on the provided context. If the context doesn't contain relevant information, say so politely.
+            prompt = f"""You are a helpful assistant. Answer the user's question directly and concisely using the provided context. Do not mention the context or use phrases like 'According to the context', 'Based on the information provided', or similar phrases. Just give the direct answer.
 
+Context:
 {context}
+
 User Question: {query}
 
 Answer:"""
@@ -150,18 +152,19 @@ Answer:"""
                 json={
                     "model": self.llm_model,
                     "prompt": prompt,
-                    "stream": False,
+                    "stream": True,
                     "options": {
                         "temperature": 0.7,
                         "top_p": 0.9,
                         "max_tokens": 1000
                     }
                 },
+                stream=True,
                 timeout=60
             )
             
             if response.status_code == 200:
-                return response.json()["response"]
+                return response.iter_content(chunk_size=8192)
             else:
                 return f"Error generating response: {response.status_code}"
                 

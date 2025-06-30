@@ -4,7 +4,7 @@ import ChatSidebar from './ChatSidebar';
 import ChatMessages from './ChatMessages';
 import DocumentUpload from './DocumentUpload';
 import { MessageSquare, Upload, LogOut, Menu, X, Send } from 'lucide-react';
-import axios from 'axios';
+import api from '../utils/axios';
 import { v4 as uuidv4 } from 'uuid';
 
 function Chat() {
@@ -53,7 +53,7 @@ function Chat() {
   const loadChatHistory = async () => {
     try {
       setError('');
-      const response = await axios.get('/api/chat/history');
+      const response = await api.get('/chat/history');
       setChats(response.data.chats);
     } catch (error) {
       console.error('Error loading chat history:', error);
@@ -70,7 +70,7 @@ function Chat() {
   const loadChatMessages = async (chatId) => {
     try {
       setError('');
-      const response = await axios.get(`/api/chat/${chatId}/messages`);
+      const response = await api.get(`/chat/${chatId}/messages`);
       setMessages(response.data.messages);
       setCurrentChat(chatId);
     } catch (error) {
@@ -90,7 +90,24 @@ function Chat() {
 
     setLoading(true);
     setError('');
-    
+
+    const userMessage = {
+      role: 'user',
+      content: message,
+      timestamp: new Date().toISOString(),
+    };
+
+    // Use a unique ID for the assistant message to update it correctly
+    const assistantMessageId = uuidv4();
+    const assistantMessage = {
+      id: assistantMessageId,
+      role: 'assistant',
+      content: '',
+      timestamp: new Date().toISOString(),
+    };
+
+    setMessages((prev) => [...prev, userMessage, assistantMessage]);
+
     try {
       const formData = new FormData();
       formData.append('message', message);
@@ -98,44 +115,62 @@ function Chat() {
         formData.append('chat_id', currentChat);
       }
 
-      const response = await axios.post('/api/chat/query', formData);
-      
-      // Add user message
-      const userMessage = {
-        role: 'user',
-        content: message,
-        timestamp: new Date().toISOString()
-      };
-      
-      // Add assistant response
-      const assistantMessage = {
-        role: 'assistant',
-        content: response.data.response,
-        timestamp: new Date().toISOString()
-      };
+      const response = await fetch('/api/chat/query', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
+        },
+        body: formData,
+      });
 
-      setMessages(prev => [...prev, userMessage, assistantMessage]);
-      
-      // If this is a new chat, update chat list
-      if (!currentChat) {
-        setCurrentChat(response.data.chat_id);
-        await loadChatHistory();
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-      
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let firstChunk = true;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n').filter((line) => line.trim() !== '');
+
+        for (const line of lines) {
+          const data = JSON.parse(line);
+
+          if (firstChunk) {
+            if (data.chat_id && !currentChat) {
+              setCurrentChat(data.chat_id);
+              loadChatHistory();
+            }
+            firstChunk = false;
+          } else if (data.response) {
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantMessageId
+                  ? { ...msg, content: msg.content + data.response }
+                  : msg
+              )
+            );
+          }
+        }
+      }
     } catch (error) {
       console.error('Error sending message:', error);
       const errorMessage = getErrorMessage(error);
       setError(errorMessage);
-      
-      // Add error message to chat
-      const errorMessageObj = {
-        role: 'assistant',
-        content: 'Sorry, I encountered an error while processing your message. Please try again.',
-        timestamp: new Date().toISOString()
-      };
-      setMessages(prev => [...prev, errorMessageObj]);
-      
-      // If authentication failed, redirect to login
+
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === assistantMessageId
+            ? { ...msg, content: 'Sorry, I encountered an error. Please try again.' }
+            : msg
+        )
+      );
+
       if (error.response?.status === 401) {
         logout();
       }
@@ -147,7 +182,7 @@ function Chat() {
   const deleteChat = async (chatId) => {
     try {
       setError('');
-      await axios.delete(`/api/chat/${chatId}`);
+      await api.delete(`/chat/${chatId}`);
       await loadChatHistory();
       
       if (currentChat === chatId) {

@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { X, Upload, FileText, AlertCircle, CheckCircle } from 'lucide-react';
-import axios from 'axios';
+import api from '../utils/axios';
 
 function DocumentUpload({ onClose, onUploadSuccess }) {
   const [selectedFile, setSelectedFile] = useState(null);
@@ -73,7 +73,7 @@ function DocumentUpload({ onClose, onUploadSuccess }) {
       const formData = new FormData();
       formData.append('file', selectedFile);
 
-      await axios.post('/api/documents/upload', formData, {
+      await api.post('/documents/upload', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
