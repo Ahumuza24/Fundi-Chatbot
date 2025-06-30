@@ -129,32 +129,44 @@ function Chat() {
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
+      let buffer = '';
       let firstChunk = true;
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n').filter((line) => line.trim() !== '');
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        
+        // Keep the last line in buffer if it's incomplete
+        buffer = lines.pop() || '';
 
         for (const line of lines) {
-          const data = JSON.parse(line);
+          if (line.trim()) {
+            try {
+              const data = JSON.parse(line);
 
-          if (firstChunk) {
-            if (data.chat_id && !currentChat) {
-              setCurrentChat(data.chat_id);
-              loadChatHistory();
+              if (firstChunk) {
+                if (data.chat_id && !currentChat) {
+                  setCurrentChat(data.chat_id);
+                  loadChatHistory();
+                }
+                firstChunk = false;
+              } else if (data.response) {
+                setMessages((prev) =>
+                  prev.map((msg) =>
+                    msg.id === assistantMessageId
+                      ? { ...msg, content: msg.content + data.response }
+                      : msg
+                  )
+                );
+                // Small delay to make streaming visible
+                await new Promise(resolve => setTimeout(resolve, 10));
+              }
+            } catch (error) {
+              console.warn('Failed to parse JSON line:', line, error);
             }
-            firstChunk = false;
-          } else if (data.response) {
-            setMessages((prev) =>
-              prev.map((msg) =>
-                msg.id === assistantMessageId
-                  ? { ...msg, content: msg.content + data.response }
-                  : msg
-              )
-            );
           }
         }
       }

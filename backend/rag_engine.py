@@ -164,7 +164,7 @@ Answer:"""
             )
             
             if response.status_code == 200:
-                return response.iter_content(chunk_size=8192)
+                return response.iter_lines()
             else:
                 return f"Error generating response: {response.status_code}"
                 

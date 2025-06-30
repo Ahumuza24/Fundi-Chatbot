@@ -213,24 +213,23 @@ async def query_chat(
             yield json.dumps(metadata) + "\n"
 
             # Then, stream the response while saving it
-            full_response_chunks = []
-            for chunk in response_stream:
-                full_response_chunks.append(chunk)
-                yield chunk
-            
-            # Now that the stream is complete, decode and save the full response
-            full_response = b"".join(full_response_chunks).decode('utf-8')
-            
-            final_text = ""
-            for line in full_response.strip().split('\n'):
-                try:
-                    data = json.loads(line)
-                    final_text += data.get("response", "")
-                except json.JSONDecodeError:
-                    logger.warning(f"Could not decode JSON line from stream: {line}")
+            full_response = ""
+            for line in response_stream:
+                if line.strip():
+                    try:
+                        data = json.loads(line.decode('utf-8'))
+                        if 'response' in data:
+                            response_text = data['response']
+                            full_response += response_text
+                            # Yield the response chunk as JSON
+                            yield json.dumps({"response": response_text}) + "\n"
+                    except json.JSONDecodeError:
+                        # Skip non-JSON lines
+                        continue
 
-            if final_text:
-                db_manager.save_message(chat_id, "assistant", final_text)
+            # Save the complete response
+            if full_response:
+                db_manager.save_message(chat_id, "assistant", full_response)
 
         return StreamingResponse(stream_and_save(), media_type="application/x-ndjson")
 
