@@ -14,4 +14,5 @@ fi
 source venv/bin/activate
 
 # Start the server
-python main.py 
+python main.py
+

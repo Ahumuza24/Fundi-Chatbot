@@ -74,18 +74,18 @@ export const AuthProvider = ({ children }) => {
       formData.append('password', password);
 
       const response = await api.post('/auth/login', formData);
-      const { token, user_id, username: userUsername } = response.data;
+      const { token, user_id, username: userUsername, is_admin } = response.data;
 
       // Store token and user data
       localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify({ id: user_id, username: userUsername }));
+      localStorage.setItem('user', JSON.stringify({ id: user_id, username: userUsername, is_admin }));
 
       // Token is automatically handled by api instance
 
-      setUser({ id: user_id, username: userUsername });
+      setUser({ id: user_id, username: userUsername, is_admin });
       setIsAuthenticated(true);
 
-      return { success: true };
+      return { success: true, is_admin };
     } catch (error) {
       console.error('Login error:', error);
       return { 
@@ -102,18 +102,18 @@ export const AuthProvider = ({ children }) => {
       formData.append('password', password);
 
       const response = await api.post('/auth/register', formData);
-      const { token, user_id, username: userUsername } = response.data;
+      const { token, user_id, username: userUsername, is_admin } = response.data;
 
       // Store token and user data
       localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify({ id: user_id, username: userUsername }));
+      localStorage.setItem('user', JSON.stringify({ id: user_id, username: userUsername, is_admin }));
 
       // Token is automatically handled by api instance
 
-      setUser({ id: user_id, username: userUsername });
+      setUser({ id: user_id, username: userUsername, is_admin });
       setIsAuthenticated(true);
 
-      return { success: true };
+      return { success: true, is_admin };
     } catch (error) {
       console.error('Registration error:', error);
       return { 

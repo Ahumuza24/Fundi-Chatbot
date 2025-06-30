@@ -21,6 +21,7 @@ from auth import AuthHandler
 from document_processor import DocumentProcessor
 from rag_engine import RAGEngine
 from database import DatabaseManager
+from admin import AdminManager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -42,6 +43,7 @@ auth_handler = AuthHandler()
 document_processor = DocumentProcessor()
 rag_engine = RAGEngine()
 db_manager = DatabaseManager()
+admin_manager = AdminManager()
 
 # Security
 security = HTTPBearer()
@@ -92,7 +94,7 @@ async def register(username: str = Form(...), password: str = Form(...)):
         user_id = db_manager.create_user(username, hashed_password)
         
         token = auth_handler.create_token(user_id, username)
-        return {"token": token, "user_id": user_id, "username": username}
+        return {"token": token, "user_id": user_id, "username": username, "is_admin": False}
     except HTTPException:
         raise
     except Exception as e:
@@ -112,7 +114,7 @@ async def login(username: str = Form(...), password: str = Form(...)):
             raise HTTPException(status_code=401, detail="Invalid credentials")
         
         token = auth_handler.create_token(user['id'], username)
-        return {"token": token, "user_id": user['id'], "username": username}
+        return {"token": token, "user_id": user['id'], "username": username, "is_admin": user.get('is_admin', False)}
     except HTTPException:
         raise
     except Exception as e:
@@ -136,6 +138,12 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     except Exception as e:
         logger.error(f"Token validation error: {str(e)}")
         raise HTTPException(status_code=401, detail="Authentication failed")
+
+def get_current_admin(current_user: dict = Depends(get_current_user)):
+    """Get current authenticated admin user"""
+    if not admin_manager.is_admin(current_user["user_id"]):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
 
 @app.post("/api/documents/upload")
 async def upload_document(
@@ -166,8 +174,11 @@ async def upload_document(
         if not text.strip():
             raise HTTPException(status_code=400, detail="Could not extract text from the document")
         
-        # Generate embeddings and store
-        document_id = rag_engine.add_document(text, file.filename, current_user["user_id"])
+        # Save document to database
+        document_id = db_manager.save_document(current_user["user_id"], file.filename, text)
+        
+        # Generate embeddings and store in RAG engine
+        rag_engine.add_document(text, file.filename, current_user["user_id"])
         
         # Clean up temp file
         os.remove(file_path)
@@ -278,6 +289,166 @@ async def delete_chat(
         logger.error(f"Delete chat error: {str(e)}")
         logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail="Failed to delete chat")
+
+# Admin API endpoints
+@app.get("/api/admin/stats")
+async def get_admin_stats(current_admin: dict = Depends(get_current_admin)):
+    """Get system statistics (admin only)"""
+    try:
+        stats = admin_manager.get_system_stats()
+        # Add recent activity (placeholder for now)
+        stats["recentActivity"] = []
+        return stats
+    except Exception as e:
+        logger.error(f"Admin stats error: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="Failed to get system statistics")
+
+@app.get("/api/admin/users")
+async def get_all_users(current_admin: dict = Depends(get_current_admin)):
+    """Get all users (admin only)"""
+    try:
+        users = admin_manager.get_all_users()
+        return {"users": users}
+    except Exception as e:
+        logger.error(f"Get all users error: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="Failed to get users")
+
+@app.get("/api/admin/users/{user_id}")
+async def get_user(user_id: int, current_admin: dict = Depends(get_current_admin)):
+    """Get user by ID (admin only)"""
+    try:
+        user = admin_manager.get_user_by_id(user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        return user
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get user error: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="Failed to get user")
+
+@app.put("/api/admin/users/{user_id}")
+async def update_user(
+    user_id: int,
+    username: str = Form(...),
+    is_admin: bool = Form(False),
+    current_admin: dict = Depends(get_current_admin)
+):
+    """Update user (admin only)"""
+    try:
+        if not username.strip():
+            raise HTTPException(status_code=400, detail="Username is required")
+        
+        success = admin_manager.update_user(user_id, username.strip(), is_admin)
+        if not success:
+            raise HTTPException(status_code=400, detail="Failed to update user")
+        
+        return {"message": "User updated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Update user error: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="Failed to update user")
+
+@app.post("/api/admin/users/{user_id}/reset-password")
+async def reset_user_password(
+    user_id: int,
+    new_password: str = Form(...),
+    current_admin: dict = Depends(get_current_admin)
+):
+    """Reset user password (admin only)"""
+    try:
+        if len(new_password) < 6:
+            raise HTTPException(status_code=400, detail="Password must be at least 6 characters long")
+        
+        success = admin_manager.reset_user_password(user_id, new_password)
+        if not success:
+            raise HTTPException(status_code=400, detail="Failed to reset password")
+        
+        return {"message": "Password reset successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Reset password error: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="Failed to reset password")
+
+@app.post("/api/admin/users")
+async def create_user(
+    username: str = Form(...),
+    password: str = Form(...),
+    is_admin: bool = Form(False),
+    current_admin: dict = Depends(get_current_admin)
+):
+    """Create new user (admin only)"""
+    try:
+        if not username.strip() or not password.strip():
+            raise HTTPException(status_code=400, detail="Username and password are required")
+        
+        if len(username) < 3:
+            raise HTTPException(status_code=400, detail="Username must be at least 3 characters long")
+        
+        if len(password) < 6:
+            raise HTTPException(status_code=400, detail="Password must be at least 6 characters long")
+        
+        user_id = admin_manager.create_user(username.strip(), password, is_admin)
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Username already exists")
+        
+        return {"message": "User created successfully", "user_id": user_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Create user error: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="Failed to create user")
+
+@app.delete("/api/admin/users/{user_id}")
+async def delete_user(user_id: int, current_admin: dict = Depends(get_current_admin)):
+    """Delete user (admin only)"""
+    try:
+        success = admin_manager.delete_user(user_id)
+        if not success:
+            raise HTTPException(status_code=400, detail="Failed to delete user")
+        
+        return {"message": "User deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Delete user error: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="Failed to delete user")
+
+@app.get("/api/admin/documents")
+async def get_all_documents(current_admin: dict = Depends(get_current_admin)):
+    """Get all documents (admin only)"""
+    try:
+        documents = admin_manager.get_all_documents()
+        return {"documents": documents}
+    except Exception as e:
+        logger.error(f"Get all documents error: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="Failed to get documents")
+
+@app.delete("/api/admin/documents/{document_id}")
+async def delete_document(document_id: int, current_admin: dict = Depends(get_current_admin)):
+    """Delete document (admin only)"""
+    try:
+        success = admin_manager.delete_document(document_id)
+        if not success:
+            raise HTTPException(status_code=400, detail="Failed to delete document")
+        
+        return {"message": "Document deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Delete document error: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="Failed to delete document")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000) 

@@ -187,4 +187,16 @@ Answer:"""
                 self.collection.delete(ids=results['ids'])
                 
         except Exception as e:
-            print(f"Error deleting user documents: {e}") 
+            print(f"Error deleting user documents: {e}")
+    
+    def delete_document_by_id(self, document_id: str):
+        """Delete a specific document by ID"""
+        if not self.collection:
+            return
+        
+        try:
+            # Delete the specific document
+            self.collection.delete(ids=[document_id])
+                
+        except Exception as e:
+            print(f"Error deleting document: {e}") 

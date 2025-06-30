@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Login from './components/Login';
 import Register from './components/Register';
 import Chat from './components/Chat';
+import AdminDashboard from './components/AdminDashboard';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
 function PrivateRoute({ children }) {
@@ -11,7 +12,7 @@ function PrivateRoute({ children }) {
 }
 
 function AppContent() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
 
   return (
     <Router>
@@ -19,11 +20,11 @@ function AppContent() {
         <Routes>
           <Route 
             path="/login" 
-            element={isAuthenticated ? <Navigate to="/chat" /> : <Login />} 
+            element={isAuthenticated ? <Navigate to={user?.is_admin ? "/admin" : "/chat"} /> : <Login />} 
           />
           <Route 
             path="/register" 
-            element={isAuthenticated ? <Navigate to="/chat" /> : <Register />} 
+            element={isAuthenticated ? <Navigate to={user?.is_admin ? "/admin" : "/chat"} /> : <Register />} 
           />
           <Route 
             path="/chat" 
@@ -34,8 +35,16 @@ function AppContent() {
             } 
           />
           <Route 
+            path="/admin" 
+            element={
+              <PrivateRoute>
+                <AdminDashboard />
+              </PrivateRoute>
+            } 
+          />
+          <Route 
             path="/" 
-            element={<Navigate to={isAuthenticated ? "/chat" : "/login"} />} 
+            element={<Navigate to={isAuthenticated ? (user?.is_admin ? "/admin" : "/chat") : "/login"} />} 
           />
         </Routes>
       </div>

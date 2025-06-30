@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import ChatSidebar from './ChatSidebar';
 import ChatMessages from './ChatMessages';
 import DocumentUpload from './DocumentUpload';
-import { MessageSquare, Upload, LogOut, Menu, X, Send } from 'lucide-react';
+import { MessageSquare, Upload, LogOut, Menu, X, Send, Settings } from 'lucide-react';
 import api from '../utils/axios';
 import { v4 as uuidv4 } from 'uuid';
 
 function Chat() {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [chats, setChats] = useState([]);
   const [currentChat, setCurrentChat] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -264,13 +266,15 @@ function Chat() {
           </div>
           
           <div className="flex items-center space-x-2">
-            <button
-              onClick={() => setShowUpload(true)}
-              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md"
-              title="Upload Document"
-            >
-              <Upload className="h-5 w-5" />
-            </button>
+            {user?.is_admin && (
+              <button
+                onClick={() => navigate('/admin')}
+                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md"
+                title="Admin Dashboard"
+              >
+                <Settings className="h-5 w-5" />
+              </button>
+            )}
             <button
               onClick={handleLogout}
               className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md"
@@ -355,8 +359,8 @@ function Chat() {
         </div>
       </div>
 
-      {/* Document upload modal */}
-      {showUpload && (
+      {/* Document upload modal - only for admins */}
+      {user?.is_admin && showUpload && (
         <DocumentUpload
           onClose={() => setShowUpload(false)}
           onUploadSuccess={() => {

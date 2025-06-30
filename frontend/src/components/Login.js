@@ -21,7 +21,12 @@ function Login() {
     const result = await login(username, password);
     
     if (result.success) {
-      navigate('/chat');
+      // Redirect admin users to admin dashboard, regular users to chat
+      if (result.is_admin) {
+        navigate('/admin');
+      } else {
+        navigate('/chat');
+      }
     } else {
       setError(result.error);
     }

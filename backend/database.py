@@ -18,6 +18,7 @@ class DatabaseManager:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE NOT NULL,
                 password TEXT NOT NULL,
+                is_admin BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -69,13 +70,13 @@ class DatabaseManager:
         conn.close()
         return result is not None
     
-    def create_user(self, username: str, hashed_password: str) -> int:
+    def create_user(self, username: str, hashed_password: str, is_admin: bool = False) -> int:
         """Create a new user"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO users (username, password) VALUES (?, ?)",
-            (username, hashed_password)
+            "INSERT INTO users (username, password, is_admin) VALUES (?, ?, ?)",
+            (username, hashed_password, is_admin)
         )
         user_id = cursor.lastrowid
         conn.commit()
@@ -86,12 +87,12 @@ class DatabaseManager:
         """Get user by username"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        cursor.execute("SELECT id, username, password FROM users WHERE username = ?", (username,))
+        cursor.execute("SELECT id, username, password, is_admin FROM users WHERE username = ?", (username,))
         result = cursor.fetchone()
         conn.close()
         
         if result:
-            return {"id": result[0], "username": result[1], "password": result[2]}
+            return {"id": result[0], "username": result[1], "password": result[2], "is_admin": bool(result[3])}
         return None
     
     def create_chat(self, chat_id: str, user_id: int, title: str):
@@ -200,4 +201,183 @@ class DatabaseManager:
         return [
             {"id": row[0], "filename": row[1], "created_at": row[2]}
             for row in results
-        ] 
+        ]
+    
+    # Admin methods
+    def get_user_by_id(self, user_id: int) -> Optional[Dict]:
+        """Get user by ID"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, username, is_admin, created_at FROM users WHERE id = ?", (user_id,))
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result:
+            return {"id": result[0], "username": result[1], "is_admin": bool(result[2]), "created_at": result[3]}
+        return None
+    
+    def get_all_users(self) -> List[Dict]:
+        """Get all users"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, username, is_admin, created_at FROM users ORDER BY created_at DESC")
+        results = cursor.fetchall()
+        conn.close()
+        
+        return [
+            {"id": row[0], "username": row[1], "is_admin": bool(row[2]), "created_at": row[3]}
+            for row in results
+        ]
+    
+    def update_user(self, user_id: int, username: str, is_admin: bool = False) -> bool:
+        """Update user details"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE users SET username = ?, is_admin = ? WHERE id = ?",
+                (username, is_admin, user_id)
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            print(f"Error updating user: {e}")
+            return False
+    
+    def update_user_password(self, user_id: int, hashed_password: str) -> bool:
+        """Update user password"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE users SET password = ? WHERE id = ?",
+                (hashed_password, user_id)
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            print(f"Error updating password: {e}")
+            return False
+    
+    def delete_user(self, user_id: int) -> bool:
+        """Delete user"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            print(f"Error deleting user: {e}")
+            return False
+    
+    def delete_user_chats(self, user_id: int) -> bool:
+        """Delete all chats and messages for a user"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # Delete messages first
+            cursor.execute('''
+                DELETE FROM messages 
+                WHERE chat_id IN (
+                    SELECT id FROM chats WHERE user_id = ?
+                )
+            ''', (user_id,))
+            
+            # Delete chats
+            cursor.execute("DELETE FROM chats WHERE user_id = ?", (user_id,))
+            
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            print(f"Error deleting user chats: {e}")
+            return False
+    
+    def get_all_documents(self) -> List[Dict]:
+        """Get all documents from all users"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT d.id, d.filename, d.created_at, u.username 
+            FROM documents d 
+            JOIN users u ON d.user_id = u.id 
+            ORDER BY d.created_at DESC
+        ''')
+        results = cursor.fetchall()
+        conn.close()
+        
+        return [
+            {"id": row[0], "filename": row[1], "created_at": row[2], "username": row[3]}
+            for row in results
+        ]
+    
+    def get_document_by_id(self, document_id: int) -> Optional[Dict]:
+        """Get document by ID"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT d.id, d.filename, d.content, d.created_at, u.username 
+            FROM documents d 
+            JOIN users u ON d.user_id = u.id 
+            WHERE d.id = ?
+        ''', (document_id,))
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result:
+            return {"id": result[0], "filename": result[1], "content": result[2], "created_at": result[3], "username": result[4]}
+        return None
+    
+    def delete_document(self, document_id: int) -> bool:
+        """Delete a document"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM documents WHERE id = ?", (document_id,))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            print(f"Error deleting document: {e}")
+            return False
+    
+    def get_user_count(self) -> int:
+        """Get total number of users"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM users")
+        result = cursor.fetchone()
+        conn.close()
+        return result[0] if result else 0
+    
+    def get_document_count(self) -> int:
+        """Get total number of documents"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM documents")
+        result = cursor.fetchone()
+        conn.close()
+        return result[0] if result else 0
+    
+    def get_chat_count(self) -> int:
+        """Get total number of chats"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM chats")
+        result = cursor.fetchone()
+        conn.close()
+        return result[0] if result else 0
+    
+    def get_message_count(self) -> int:
+        """Get total number of messages"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM messages")
+        result = cursor.fetchone()
+        conn.close()
+        return result[0] if result else 0 
